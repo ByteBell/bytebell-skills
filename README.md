@@ -1,23 +1,23 @@
 # bytebell-skills
 
-Claude Code skills for the [ByteBell Knowledge Graph](https://bytebell.com) MCP server.
+Claude Code plugin marketplace for the [ByteBell Knowledge Graph](https://github.com/ByteBell/bytebell-skills) MCP server.
 
 Enables smart code search, graph traversal, and PDF retrieval across indexed repositories directly from Claude Code.
 
 ## Install
 
 ```sh
-# Register this marketplace (run once)
+# 1. Register the marketplace (run once)
 /plugin marketplace add ByteBell/bytebell-skills
 
-# Install the skill
-/plugin install bytebell@bytebell-skills
+# 2. Install the skill
+/plugin install bytebell@skill
 ```
 
-## Skills
+## Plugins
 
-| Skill | Description |
-|-------|-------------|
+| Plugin | Description |
+|--------|-------------|
 | `bytebell` | Search, traverse, and retrieve from indexed code repos and PDF documents |
 
 ## What it enables
