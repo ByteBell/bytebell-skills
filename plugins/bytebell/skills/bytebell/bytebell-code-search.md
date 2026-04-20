@@ -14,7 +14,7 @@ list_knowledge → smart_search → retrieve_file(metadata) → retrieve_file(co
 2. **smart_search({ query, knowledgeId?, commitHash? })** — find relevant files. Returns path, repo_name, knowledge_id, score, matched_channels.
 3. **retrieve_file({ operation: "metadata", knowledgeId, relativePath })** — get section_map, classes, functions, imports, line_count. Read section_map to find exact line ranges.
 4. **retrieve_file({ operation: "content", knowledgeId, relativePath, fromLine, toLine })** — fetch ONLY the section you need from section_map. Never fetch full file blindly.
-5. *(optional)* **keyword_lookup({ term, type })** — if you need to trace dependencies, find call sites, or map which other files use a class/function discovered in step 3-4.
+5. *(optional)* **keyword_lookup({ keyword, types })** — if you need to trace dependencies, find call sites, or map which other files use a class/function discovered in step 3-4.
 6. *(optional)* **graph_search({ query, channels })** — if smart_search results were insufficient, use specific channels (similar, integration, semantic) for a targeted second pass.
 
 ### What went wrong without this pattern:
@@ -53,14 +53,14 @@ keyword_lookup is the most precise search tool — finds an exact OrgKeyword by 
 - You're doing cross-repo impact analysis
 
 **Examples:**
-- "Find all files that use AuthService" → `keyword_lookup({ term: "AuthService", type: "HAS_CLASS" })`
-- "Which files import express?" → `keyword_lookup({ term: "express", type: "HAS_IMPORT_EXTERNAL" })`
-- "What consumes the /api/users endpoint?" → `keyword_lookup({ term: "POST /api/users", type: "CONSUMES_CONTRACT" })`
-- "Find all event subscribers for user.created" → `keyword_lookup({ term: "user.created", type: "HAS_INTEGRATION_SURFACE" })`
-- "Where is validateToken defined?" → `keyword_lookup({ term: "validateToken", type: "HAS_FUNCTION" })`
+- "Find all files that use AuthService" → `keyword_lookup({ keyword: "AuthService", types: ["HAS_CLASS"] })`
+- "Which files import express?" → `keyword_lookup({ keyword: "express", types: ["HAS_IMPORT_EXTERNAL"] })`
+- "What consumes the /api/users endpoint?" → `keyword_lookup({ keyword: "POST /api/users", types: ["CONSUMES_CONTRACT"] })`
+- "Find all event subscribers for user.created" → `keyword_lookup({ keyword: "user.created", types: ["HAS_INTEGRATION_SURFACE"] })`
+- "Where is validateToken defined?" → `keyword_lookup({ keyword: "validateToken", types: ["HAS_FUNCTION"] })`
 
 **Valid types (exact strings only):**
-HAS_CLASS, HAS_FUNCTION, HAS_IMPORT_EXTERNAL, HAS_KEYWORD, HAS_ONTOLOGY_CONCEPT,
+HAS_CLASS, HAS_FUNCTION, HAS_IMPORT_EXTERNAL, HAS_IMPORT_INTERNAL, HAS_KEYWORD, HAS_ONTOLOGY_CONCEPT,
 HAS_BUSINESS_ENTITY, HAS_SYSTEM_CAPABILITY, HAS_SIDE_EFFECT, HAS_CONFIG_DEPENDENCY,
 HAS_INTEGRATION_SURFACE, PROVIDES_CONTRACT, CONSUMES_CONTRACT, HAS_DATA_FLOW_DIRECTION
 
@@ -75,7 +75,7 @@ Use graph_search when you need a specific channel that smart_search doesn't expo
 | functions   | HAS_FUNCTION OrgKeywords                                  | "validateToken"            |
 | imports     | HAS_IMPORT_EXTERNAL OrgKeywords                           | "express"                  |
 | keywords    | HAS_KEYWORD OrgKeywords                                   | "rate-limiting"            |
-| paths       | FileNode path field                                       | "src/auth/"                |
+| paths       | FileNode relative_path field                              | "src/auth/"                |
 | semantic    | Pinecone vector similarity                                | "how does login work"      |
 | glob        | Path pattern matching                                     | "*.test.ts"                |
 | integration | PROVIDES/CONSUMES_CONTRACT, HAS_INTEGRATION_SURFACE       | "POST /api/users"          |

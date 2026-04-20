@@ -62,9 +62,9 @@ The hardest tasks in testing required code from 5+ interconnected files. Models 
 
 ### The Exploration-First Pattern:
 
-1. **keyword_lookup({ term: "BuggyClass", type: "HAS_CLASS" })** — find where the class/function lives and all files that reference it
+1. **keyword_lookup({ keyword: "BuggyClass", types: ["HAS_CLASS"] })** — find where the class/function lives and all files that reference it
 2. **graph_traverse({ operation: "folder_dependency_graph", folderPath: "src/" })** — understand which modules the buggy file sits in and what depends on it
-3. **keyword_lookup({ term: "BuggyClass", type: "HAS_IMPORT_EXTERNAL" })** — find all files that import it (the impact chain)
+3. **keyword_lookup({ keyword: "BuggyClass", types: ["HAS_IMPORT_INTERNAL"] })** — find all files that import it (the impact chain)
 4. **retrieve_file(metadata)** ONLY on the files in the dependency chain — don't scan broadly
 
 ### vs The Wasteful Pattern:
