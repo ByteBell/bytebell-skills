@@ -1,7 +1,7 @@
 {
   "name": "bytebell",
   "description": "ByteBell Knowledge Graph — search, traverse, and retrieve from indexed code repos and PDF documents",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": {
     "name": "ByteBell"
   }

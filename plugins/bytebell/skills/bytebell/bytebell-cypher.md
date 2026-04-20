@@ -17,14 +17,14 @@ Use cypher when standard tools can't express the query — especially when you'd
 ## Graph Schema (7 node types)
 
 ```
-Knowledge { knowledge_id, name, description, repo_url, org_id }
-RepoSummary { purpose, data_flow, key_patterns, major_subsystems }
-FolderNode { path, purpose, org_id, knowledge_id }
-  └─ FolderVersion { path, purpose, commit_hash, committed_at }
-FileNode { path, purpose, summary, line_count, org_id, knowledge_id }
-  └─ FileVersion { path, purpose, summary, line_count, commit_hash, committed_at, section_map }
-OrgKeyword { name, type, org_id, content_type }
-  types: HAS_CLASS, HAS_FUNCTION, HAS_IMPORT_EXTERNAL, HAS_KEYWORD,
+Knowledge { knowledge_id, org_id, repo_name, display_name, branch_name, commit_hash }
+RepoSummary { data_flow, key_patterns, major_subsystems, architecture, org_id, knowledge_id }
+FolderNode { relative_path, purpose, org_id, knowledge_id }
+  └─ FolderVersion { relative_path, purpose, commit_hash, committed_at }
+FileNode { relative_path, purpose, summary, section_map, org_id, knowledge_id }
+  └─ FileVersion { relative_path, purpose, summary, section_map, commit_hash, committed_at, change_type }
+OrgKeyword { keyword, type, org_id, content_type, total_frequency, file_count }
+  types: HAS_CLASS, HAS_FUNCTION, HAS_IMPORT_EXTERNAL, HAS_IMPORT_INTERNAL, HAS_KEYWORD,
          HAS_ONTOLOGY_CONCEPT, HAS_BUSINESS_ENTITY, HAS_SYSTEM_CAPABILITY,
          HAS_SIDE_EFFECT, HAS_CONFIG_DEPENDENCY, HAS_INTEGRATION_SURFACE,
          PROVIDES_CONTRACT, CONSUMES_CONTRACT, HAS_DATA_FLOW_DIRECTION
@@ -34,10 +34,14 @@ OrgKeyword { name, type, org_id, content_type }
 
 ```
 Knowledge -[:HAS_REPO_SUMMARY]-> RepoSummary
-Knowledge -[:CONTAINS_FOLDER]-> FolderNode -[:CONTAINS_FILE]-> FileNode
+Knowledge -[:HAS_FOLDER]-> FolderNode
+Knowledge -[:HAS_FILE]-> FileNode
+FolderNode -[:CONTAINS_FOLDER]-> FolderNode
+FolderNode -[:CONTAINS_FILE]-> FileNode
 FolderNode -[:HAS_VERSION]-> FolderVersion
 FileNode -[:HAS_VERSION]-> FileVersion
 OrgKeyword -[:APPEARS_IN_FILE {frequency, commit_hash}]-> FileVersion
+OrgKeyword -[:APPEARS_IN_FILE {frequency, commit_hash}]-> FileNode  (current-state edges)
 OrgKeyword -[:APPEARS_IN_FOLDER {frequency, commit_hash}]-> FolderVersion
 ```
 
@@ -49,10 +53,10 @@ Instead of 3-4 sequential keyword_lookup calls to find where `ClassA`, `ClassB`,
 
 ```cypher
 MATCH (k:OrgKeyword {org_id: $orgId})-[:APPEARS_IN_FILE]->(fv:FileVersion)
-WHERE k.name IN ['ClassA', 'ClassB', 'ClassC']
+WHERE k.keyword IN ['ClassA', 'ClassB', 'ClassC']
   AND k.type IN ['HAS_CLASS', 'HAS_FUNCTION']
-WITH fv.path as path, count(DISTINCT k.name) as keyword_count,
-     collect(DISTINCT k.name) as matched_keywords, fv.purpose as purpose
+WITH fv.relative_path as path, count(DISTINCT k.keyword) as keyword_count,
+     collect(DISTINCT k.keyword) as matched_keywords, fv.purpose as purpose
 WHERE keyword_count >= 2
 ORDER BY keyword_count DESC
 RETURN path, keyword_count, matched_keywords, purpose
@@ -64,16 +68,15 @@ LIMIT 10
 Instead of reading 5-8 files blindly chasing imports:
 
 ```cypher
-MATCH (fn:FileNode {org_id: $orgId})
-      -[:HAS_VERSION]->(fv:FileVersion)
-WHERE fn.path CONTAINS $startFilePath
-WITH fv
+MATCH (fn:FileNode {org_id: $orgId})-[:HAS_VERSION]->(fv:FileVersion)
+WHERE fn.relative_path CONTAINS $startFilePath
+WITH fv, fn.relative_path AS startPath
 MATCH (k:OrgKeyword {org_id: $orgId, type: 'HAS_IMPORT_EXTERNAL'})
       -[:APPEARS_IN_FILE]->(fv)
-WITH k
+WITH k, startPath
 MATCH (k)-[:APPEARS_IN_FILE]->(other_fv:FileVersion)
-WHERE other_fv.path <> fv.path
-RETURN DISTINCT other_fv.path, other_fv.purpose,
+WHERE other_fv.relative_path <> startPath
+RETURN DISTINCT other_fv.relative_path, other_fv.purpose,
        count(DISTINCT k) as shared_imports
 ORDER BY shared_imports DESC
 LIMIT 10
@@ -86,9 +89,9 @@ When smart_search gives partial results and you'd otherwise retry with different
 ```cypher
 MATCH (k:OrgKeyword {org_id: $orgId})
       -[:APPEARS_IN_FILE]->(fv:FileVersion)
-WHERE k.name =~ '(?i).*auth.*' OR k.name =~ '(?i).*token.*' OR k.name =~ '(?i).*jwt.*'
-WITH fv.path as path, count(DISTINCT k) as relevance,
-     collect(DISTINCT k.name)[0..5] as top_keywords,
+WHERE k.keyword =~ '(?i).*auth.*' OR k.keyword =~ '(?i).*token.*' OR k.keyword =~ '(?i).*jwt.*'
+WITH fv.relative_path as path, count(DISTINCT k) as relevance,
+     collect(DISTINCT k.keyword)[0..5] as top_keywords,
      fv.purpose as purpose
 ORDER BY relevance DESC
 RETURN path, relevance, top_keywords, purpose
@@ -102,11 +105,11 @@ Instead of multiple graph_search(integration) calls across repos:
 ```cypher
 MATCH (provider:OrgKeyword {org_id: $orgId, type: 'PROVIDES_CONTRACT'})
       -[:APPEARS_IN_FILE]->(prov_fv:FileVersion)
-MATCH (consumer:OrgKeyword {org_id: $orgId, type: 'CONSUMES_CONTRACT', name: provider.name})
+MATCH (consumer:OrgKeyword {org_id: $orgId, type: 'CONSUMES_CONTRACT', keyword: provider.keyword})
       -[:APPEARS_IN_FILE]->(cons_fv:FileVersion)
-RETURN provider.name as contract,
-       prov_fv.path as provider_file,
-       cons_fv.path as consumer_file
+RETURN provider.keyword as contract,
+       prov_fv.relative_path as provider_file,
+       cons_fv.relative_path as consumer_file
 ORDER BY contract
 ```
 
@@ -116,8 +119,8 @@ Instead of multiple retrieve_file calls with different commitHash values:
 
 ```cypher
 MATCH (fn:FileNode {org_id: $orgId})-[:HAS_VERSION]->(fv:FileVersion)
-WHERE fn.path CONTAINS $filePath
-RETURN fv.commit_hash, fv.committed_at, fv.summary, fv.line_count
+WHERE fn.relative_path CONTAINS $filePath
+RETURN fv.commit_hash, fv.committed_at, fv.summary, fv.change_type
 ORDER BY fv.committed_at DESC
 LIMIT 10
 ```
@@ -128,11 +131,11 @@ Instead of get_repo_hubs + multiple graph_search calls to understand a module:
 
 ```cypher
 MATCH (k:OrgKeyword {org_id: $orgId})-[:APPEARS_IN_FILE]->(fv:FileVersion)
-WHERE fv.path STARTS WITH $modulePath
-WITH fv.path as path, fv.purpose as purpose, fv.line_count as lines,
+WHERE fv.relative_path STARTS WITH $modulePath
+WITH fv.relative_path as path, fv.purpose as purpose,
      count(DISTINCT k) as keyword_density
 ORDER BY keyword_density DESC
-RETURN path, purpose, lines, keyword_density
+RETURN path, purpose, keyword_density
 LIMIT 10
 ```
 
@@ -141,10 +144,10 @@ LIMIT 10
 Instead of smart_search("test for X") which often returns noisy results:
 
 ```cypher
-MATCH (k:OrgKeyword {name: $className, type: 'HAS_CLASS', org_id: $orgId})
+MATCH (k:OrgKeyword {keyword: $className, type: 'HAS_CLASS', org_id: $orgId})
       -[:APPEARS_IN_FILE]->(fv:FileVersion)
-WHERE fv.path CONTAINS 'test'
-RETURN fv.path, fv.purpose, fv.summary
+WHERE fv.relative_path CONTAINS 'test'
+RETURN fv.relative_path, fv.purpose, fv.summary
 ORDER BY fv.committed_at DESC
 ```
 
@@ -152,23 +155,23 @@ ORDER BY fv.committed_at DESC
 
 ```cypher
 -- Find all files that import a specific external package
-MATCH (k:OrgKeyword {name: "express", type: "HAS_IMPORT_EXTERNAL", org_id: $orgId})
+MATCH (k:OrgKeyword {keyword: "express", type: "HAS_IMPORT_EXTERNAL", org_id: $orgId})
       -[:APPEARS_IN_FILE]->(fv:FileVersion)
-RETURN fv.path, fv.commit_hash ORDER BY fv.committed_at DESC
+RETURN fv.relative_path, fv.commit_hash ORDER BY fv.committed_at DESC
 
 -- Find files that provide a specific API contract
-MATCH (k:OrgKeyword {name: "POST /api/users", type: "PROVIDES_CONTRACT", org_id: $orgId})
+MATCH (k:OrgKeyword {keyword: "POST /api/users", type: "PROVIDES_CONTRACT", org_id: $orgId})
       -[:APPEARS_IN_FILE]->(fv:FileVersion)
-RETURN fv.path, fv.purpose
+RETURN fv.relative_path, fv.purpose
 
 -- Count functions per file (top 10 most complex)
 MATCH (k:OrgKeyword {type: "HAS_FUNCTION", org_id: $orgId})-[:APPEARS_IN_FILE]->(fv:FileVersion)
-RETURN fv.path, count(k) AS fn_count ORDER BY fn_count DESC LIMIT 10
+RETURN fv.relative_path, count(k) AS fn_count ORDER BY fn_count DESC LIMIT 10
 
 -- Get section_map for multiple files at once (avoids N metadata calls)
 MATCH (fn:FileNode {org_id: $orgId})-[:HAS_VERSION]->(fv:FileVersion)
-WHERE fn.path IN [$path1, $path2, $path3]
-RETURN fn.path, fv.section_map, fv.line_count
+WHERE fn.relative_path IN [$path1, $path2, $path3]
+RETURN fn.relative_path, fv.section_map
 ORDER BY fv.committed_at DESC
 ```
 
@@ -177,6 +180,7 @@ ORDER BY fv.committed_at DESC
 - Always include `org_id: $orgId` — it's auto-injected, always available
 - Use `ORDER BY fv.committed_at DESC LIMIT 1` to get the latest version of a file
 - Use `count(DISTINCT k)` for frequency ranking — more shared keywords = more relevant
-- Use `collect(DISTINCT k.name)[0..5]` to preview matched keywords without overwhelming output
-- Regex is supported: `k.name =~ '(?i).*pattern.*'` for case-insensitive fuzzy matching
+- Use `collect(DISTINCT k.keyword)[0..5]` to preview matched keywords without overwhelming output
+- Regex is supported: `k.keyword =~ '(?i).*pattern.*'` for case-insensitive fuzzy matching
 - Keep queries focused — prefer LIMIT 10-15 over unbounded results
+- `APPEARS_IN_FILE` targets both `FileVersion` (historical snapshots, 15.8M edges) and `FileNode` (current-state, 4.3M edges) — use `FileVersion` for commit-scoped queries, `FileNode` for latest-state queries
