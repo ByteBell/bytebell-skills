@@ -12,6 +12,12 @@ Enables smart code search, graph traversal, and PDF retrieval across indexed rep
 
 # 2. Install the skill
 /plugin install bytebell@skill
+```"
+
+or 
+
+```
+claude plugin marketplace add ByteBell/bytebell-skills && claude plugin install bytebell@skill
 ```
 
 ## Plugins
